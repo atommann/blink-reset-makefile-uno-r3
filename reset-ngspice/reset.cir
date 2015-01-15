@@ -1,0 +1,11 @@
+Auto-Reset
+VDTR    1 0 PWL(0 5 0.5m 5 0.000500004 0 1m 0)
+Vcc 3 0 5
+C1  1 2 100n
+R1  3 2 10k
+.control
+delete all
+tran 10n 5m
+plot v(1) v(2)
+.endc
+.END

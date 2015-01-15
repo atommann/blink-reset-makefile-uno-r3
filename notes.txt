@@ -1,0 +1,63 @@
+从原理图上分析它的时间
+复位之后运行的是 bootloader 程序。
+
+mega88 datasheet page 268
+
+https://github.com/Amadiro/arduino-reset/blob/master/arduino-reset.c
+用 ioctl 来控制
+
+The default behavior on Linux for serial ports is to assert DTR when the port is opened, and deassert it when the port is closed.
+DTR 是 low active, assert 时是低电压。
+
+The 'hup' flag of stty can be used to modify this bevaiour, by clearing the hup flag (stty -F /dev/ttyUSB0 -hup), DTR will be left asserted after the port is closed.
+经过实验，确认如此，FT232RL 上面的 DTR 经过这个命令后始终是 0V. 那说明还是处于 asserted (有效)状态。
+stty -F /dev/ttyUSB0 -hupcl
+
+stty -F /dev/ttyUSB0 hupcl
+工作过程如下：
+1. stty 打开串口，DTR = 0V, AVR 复位
+2. 关闭后挂断，DTR 上的电压是 5V. 系统进入 bootloader 模式。C13 两端电压都是 5V
+
+如果此时接下来再执行
+stty -F /dev/ttyUSB0 -hupcl
+AVR 也会复位，因为
+DTR 会变成 0V，并且在 stty 退出后 DTR 还是为 0V，电容 C13 开始充电。AVR 复位。
+如果我们再执行一次 stty -F /dev/ttyUSB0 -hupcl，这时 AVR 就不会复位了，因为电容已经充满了电，处于稳定状态。
+这时再执行 stty -F /dev/ttyUSB0 hupcl
+
+
+python -c "import serial, time; s = serial.Serial('/dev/ttyUSB1', 57600); s.setDTR(True);"
+DTR 设置成 0V
+
+python -c "import serial, time; s = serial.Serial('/dev/ttyUSB1', 57600); s.setDTR(False);"
+DTR 设置成 5V
+因为打开串口时 DTR 会被设置成 0V，因此上面这一句就能复位 AVR.
+
+在设置成 5V 后再执行 python -c "import serial, time; s = serial.Serial('/dev/ttyUSB1', 57600); s.setDTR(True);" 会复位 AVR，但接下来再执行这条命令，就没有效果了，和上面的 stty 分析一样。
+
+
+
+arduino ide repository
+java code
+https://github.com/arduino/Arduino/blob/598ab1d5c003e02b6bb193640fac8526ad8ab912/app/src/processing/app/debug/Uploader.java
+
+
+# 操作 dtr 引脚的方法
+$ob->dtr_active(T);   #true: 拉低；
+$ob->dtr_active(F);   #false：拉高
+$ob->pulse_dtr_on($milliseconds);    #avtive拉低$milliseconds毫秒，再拉高$milliseconds毫秒
+$ob->pulse_dtr_off($milliseconds);   #inavtive拉高$milliseconds毫秒，再拉低$milliseconds毫秒
+
+perl -MDevice::SerialPort -e 'Device::SerialPort->new("/dev/ttyUSB1")->dtr_active(F)'; # DTR 高
+perl -MDevice::SerialPort -e 'Device::SerialPort->new("/dev/ttyUSB1")->dtr_active(T)'; # DTR 低
+
+
+perl -MDevice::SerialPort -e 'Device::SerialPort->new("/dev/ttyUSB0")->pulse_dtr_on(1000)';
+--|___1000ms_____|-----1000ms-----
+
+
+reset-ngspice
+--------------
+在命令行里执行 ngspice reset.cir 可以显示复位波形。
+
+
